@@ -2,6 +2,7 @@ import json
 import pycurl
 import certifi
 import urllib
+import re
 
 from io import BytesIO
 
@@ -32,6 +33,12 @@ def header_func(header_line):
 
     headers[name] = value
 
+def get_token(set_cookie):
+    match = re.search(r'(__AT=)((\w){40})', set_cookie, re.ASCII)
+
+    # TODO: tratar se o match é valido
+    return match.group(2)
+
 req = pycurl.Curl()
 req.setopt(req.URL, url);
 req.setopt(req.WRITEDATA, buffer);
@@ -39,6 +46,8 @@ req.setopt(req.CAINFO, certifi.where())
 req.setopt(req.HEADERFUNCTION, header_func)
 
 req.perform()
-body = buffer.getvalue()
 
-print(headers['set-cookie'])
+body = buffer.getvalue()
+authenticity_token = get_token(headers['set-cookie'])
+
+print(authenticity_token)
