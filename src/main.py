@@ -7,14 +7,8 @@ o endpoint
 
 import json
 import re
-import gzip
 import sys
-from io import BytesIO
-from os import remove
-import certifi
-import pycurl
-
-buffer = BytesIO()
+import requests
 
 URL_PRE_LOGIN = "https://login.app.ufgd.edu.br/login"
 URL_POST_LOGIN = "https://ufgdnet.app.ufgd.edu.br"
@@ -32,33 +26,6 @@ credentials = []
 #
 with open("credentials.json", encoding='utf-8') as f:
     credentials = json.load(f)
-
-headers = {}
-def header_func(header_line):
-    '''
-    Callback para as requisições, aqui tratamos os
-    cabeçalhos e atribuímos numa lista
-    '''
-
-    header_line = header_line.decode('iso-8859-1')
-
-    if ':' not in header_line:
-        return
-
-    name, value = header_line.split(':', 1)
-
-    name = name.strip()
-    value = value.strip()
-
-    name = name.lower()
-
-    if name in headers:
-        if isinstance(headers[name], list):
-            headers[name].append(value)
-        else:
-            headers[name] = [headers[name], value]
-    else:
-        headers[name] = value
 
 def get_ufgdnet(set_cookie):
     '''
@@ -89,25 +56,17 @@ def get_cookies(response_set_cookie):
 
     cookies = {}
 
-    # passa pelos elementos do set_cookie procurando o play_session
-    for element in response_set_cookie:
-        match = re.search(r'(PLAY_SESSION=)((\w){40})', element, re.ASCII)
+    raw_cookie = response_set_cookie.get('PLAY_SESSION')
 
-        if match is not None and len(match.group(2)) == 40:
-            cookies['play_session'] = match.group(2)
-            break
+    match = re.search(r'((\w){40})', raw_cookie, re.ASCII)
+    cookies['play_session'] = match.group(0)
 
     if 'play_session' not in cookies:
-        print("O PLAY_SESSION não foi obtido! Saindo...")
+        print("o PLAY_SESSION não foi obtido! Saindo...")
         sys.exit(1)
 
-    # faz o mesmo que o loop acima mas procurando pelo authenticityToken,
-    for element in response_set_cookie:
-        match = re.search(r'(__AT=)((\w){40})', element, re.ASCII)
-
-        if match is not None and len(match.group(2)) == 40:
-            cookies['token'] = match.group(2)
-            break
+    match = re.search(r'(__AT=)((\w){40})', raw_cookie, re.ASCII)
+    cookies['token'] = match.group(2)
 
     if 'token' not in cookies:
         print("O authenticityToken não foi obtido! Saindo...")
@@ -115,16 +74,17 @@ def get_cookies(response_set_cookie):
 
     return cookies
 
-def get(url, endpoint=""):
+def get(url, endpoint="", cookies=None):
     '''
     Define os alguns parâmetros da requisição GET
     e "performa"
     '''
+    if cookies is not None:
+        req = requests.get(url + endpoint, cookies=cookies)
+    else:
+        req = requests.get(url + endpoint)
 
-    req.setopt(req.URL, url + endpoint)
-    req.setopt(req.HEADERFUNCTION, header_func)
-    req.perform()
-    # req.setopt(req.VERBOSE, True)
+    return req
 
 def post(url, response_cookies, user_credentials):
     '''
@@ -134,75 +94,74 @@ def post(url, response_cookies, user_credentials):
     nessa função
     '''
 
-    req.setopt(req.URL, url + "_form")
+    cookies = response_cookies['play_session']
+    cookies += "-___AT=" + response_cookies['token']
+    cookies = {"PLAY_SESSION": cookies}
 
-    req.setopt(req.HEADERFUNCTION, header_func)
+    payload = {
+            'authenticityToken': response_cookies['token'],
+            'user.username': user_credentials['username'],
+            'user.password': user_credentials['password'],
+            'service': 'https://sigecad-academico.ufgd.edu.br/'
+    }
 
-    data_fmt = "authenticityToken=" + response_cookies['token']
-    data_fmt += "&user.username=" + user_credentials['username']
-    data_fmt += "&user.password=" + user_credentials['password']
+    post_response = requests.post(url + "_form", data=payload,
+                                  cookies=cookies)
 
-    req.setopt(req.POSTFIELDS, data_fmt)
-    # req.setopt(req.VERBOSE, True)
+    return post_response
 
-    req.perform()
+def semester_id(cookies):
+    '''
+    Pega todos os ID dos semestres já
+    feitos pelo aluno
+    '''
+    ENDPOINT = "/rest/periodosletivos"
 
-req = pycurl.Curl()
+    response_get = get(URL_SIGECAD, ENDPOINT, cookies)
+    response_json = response_get.json()
 
-req.setopt(req.USERAGENT, USERAGENT)
-req.setopt(req.COOKIEFILE, 'cookies.txt')
-req.setopt(req.COOKIEJAR, 'cookies.txt')
-req.setopt(req.WRITEDATA, buffer)
-req.setopt(req.CAINFO, certifi.where())
+    id_list = []
+
+    for element in response_json:
+        id_list.append(element['id'])
+
+    return id_list
+
+def classes(semester_id, cookies):
+    '''
+    Pega o ID de todas as disciplinas que estão
+    sendo feitas, ou foram feitas, naquele semester_id
+    '''
+    ENDPOINT = "/rest/turmas?periodoLetivoID=" + str(semester_id)
+    response_get = get(URL_SIGECAD, ENDPOINT, cookies)
+
+    return response_get
+
 
 # get para pegar o authenticityToken e o play_session
-get(URL_PRE_LOGIN)
+response_get = get(URL_PRE_LOGIN)
 
-body = buffer.getvalue()
-cookies_pre_login = get_cookies(headers['set-cookie'])
+cookies_pre_login = get_cookies(response_get.cookies)
 if cookies_pre_login is None:
     print("O cookie não foi pego! Saindo...")
     sys.exit(1)
 
-post(URL_PRE_LOGIN, cookies_pre_login, credentials)
-body = buffer.getvalue()
+# os cookies que serão utilizados para "navegar" no
+# sistema, serão pegos após esse POST com credenciais válidas.
+response_post = post(URL_PRE_LOGIN, cookies_pre_login, credentials)
 
-ufgdnet_token = get_ufgdnet(headers['set-cookie'])
+cookies = response_post.cookies.values()
+cookies = {
+        "UFGDNET": cookies[0],
+        "PLAY_ACADEMICO_SESSION": cookies[1]
+}
 
-# GET para obter o json dos períodos letivos,
-# ele é feito num endpoint /rest/...
-# req.setopt(req.VERBOSE, True)
-req.setopt(req.HTTPGET, 1)
+# um exemplo só pra pegar as disciplinas do último
+# semestre feito pelo aluno.
+semester_id_list = semester_id(cookies)
+last_semester_id = semester_id_list[0]
 
-ENDPOINT = "/rest/periodosletivos"
-# endpoint = "/rest/dadosacademico"
+id_list = semester_id(cookies)
 
-get(URL_SIGECAD, ENDPOINT)
-# o segundo serve para fazer uma requisição com os
-# cookies já setados
-REFERER = "https://sigecad-academico.ufgd.edu.br/rest/periodosletivos"
-req.setopt(req.HTTPHEADER, ["Referer: " + REFERER])
-# req.setopt(req.HTTPHEADER, ["Accept: application/json"])
-req.setopt(req.HTTPHEADER, ["Accept-Encoding: gzip"])
-req.setopt(req.HTTPHEADER, ["X-Requested-With: XMLHttpRequest"])
-get(URL_SIGECAD, ENDPOINT)
-
-body = buffer.getvalue()
-with open("response.gz", "wb") as f:
-    f.write(body)
-
-# TODO: arranque apenas o gzip da resposta, esse é o
-#       motivo pelo qual o script funcione as vezes apenas.
-
-with gzip.open("response.gz", mode="rt") as f:
-    try:
-        file_content = f.read()
-        print(file_content)
-
-    except gzip.BadGzipFile:
-        print("Erro!")
-
-req.close()
-
-remove("cookies.txt")
-remove("response.gz")
+classes_list = classes(id_list[0], cookies)
+print(classes_list.json())
