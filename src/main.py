@@ -137,22 +137,46 @@ def classes(semester_id, cookies):
 
     return response_get
 
-def imprimir_detalhes_disciplinas(disciplinas_json):
+def get_subjects_details(subjects):
     """
-    Imprime os detalhes de cada disciplina de forma direta a partir de uma resposta JSON.
+    Imprime os detalhes de cada disciplina de forma direta
+    a partir de uma resposta JSON.
     """
-    disciplinas = disciplinas_json.json()
-    if disciplinas:
-        for disciplina in disciplinas:
-                print(f"Disciplina: {disciplina['disciplina']} (Código: {disciplina['codigo']}, Turma: {disciplina['turma']})")
-                print(f"  Status: {disciplina['resultado']}")
-                print(f"  Faltas: {disciplina['faltas']}/{disciplina['limite_faltas']}  |  Carga Horária: {disciplina['ch_total']} horas")
-                print(f"  Avaliação: {'Sim' if disciplina['avaliacao'] else 'Não'}  |  Frequência Obrigatória: {'Sim' if disciplina['frequencia_obrigatoria'] else 'Não'}")
-                print(f"  Tem Notas: {'Sim' if disciplina['tem_notas'] else 'Não'}")
-                print("--------------------------------------------------------------------------------")
-        else:
-            print("Não foram encontradas disciplinas na resposta.")
 
+    for element in subjects:
+        name = element['disciplina']
+        code = element['codigo']
+        period = element['turma']
+        status = element['resultado']
+        absence = element['faltas']
+        limit_absence = element['limite_faltas']
+        workload = element['ch_total']
+
+        assessment = ""
+        if element['avaliacao']:
+            assessment = "Sim"
+        else:
+            assessment = "Não"
+
+        mandatory_freq = ""
+        if element['frequencia_obrigatoria']:
+            mandatory_freq = "Sim"
+        else:
+            mandatory_freq = "Não"
+
+        has_score = ""
+        if element['tem_notas']:
+            has_score = "Sim"
+        else:
+            has_score = "Não"
+
+        print(f"Disciplina: {name} (Código: {code}, Turma: {period})")
+        print(f"\tStatus: {status}")
+        print(f"\tFaltas: {absence}/{limit_absence}\t|\t", end="")
+        print(f"Carga Horária: {workload} horas")
+        print(f"\tAvaliação: {assessment}\t|\tFrequência Obrigatória: {mandatory_freq}")
+        print(f"\tTem Notas: {has_score}")
+        print("-" * 80)
 
 # get para pegar o authenticityToken e o play_session
 response_get = get(URL_PRE_LOGIN)
@@ -180,4 +204,4 @@ last_semester_id = semester_id_list[0]
 id_list = semester_id(cookies)
 
 classes_list = classes(id_list[0], cookies)
-imprimir_detalhes_disciplinas(classes_list)
+get_subjects_details(classes_list.json())
