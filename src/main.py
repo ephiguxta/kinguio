@@ -137,6 +137,22 @@ def classes(semester_id, cookies):
 
     return response_get
 
+def imprimir_detalhes_disciplinas(disciplinas_json):
+    """
+    Imprime os detalhes de cada disciplina de forma direta a partir de uma resposta JSON.
+    """
+    disciplinas = disciplinas_json.json()
+    if disciplinas:
+        for disciplina in disciplinas:
+                print(f"Disciplina: {disciplina['disciplina']} (Código: {disciplina['codigo']}, Turma: {disciplina['turma']})")
+                print(f"  Status: {disciplina['resultado']}")
+                print(f"  Faltas: {disciplina['faltas']}/{disciplina['limite_faltas']}  |  Carga Horária: {disciplina['ch_total']} horas")
+                print(f"  Avaliação: {'Sim' if disciplina['avaliacao'] else 'Não'}  |  Frequência Obrigatória: {'Sim' if disciplina['frequencia_obrigatoria'] else 'Não'}")
+                print(f"  Tem Notas: {'Sim' if disciplina['tem_notas'] else 'Não'}")
+                print("--------------------------------------------------------------------------------")
+        else:
+            print("Não foram encontradas disciplinas na resposta.")
+
 
 # get para pegar o authenticityToken e o play_session
 response_get = get(URL_PRE_LOGIN)
@@ -164,4 +180,4 @@ last_semester_id = semester_id_list[0]
 id_list = semester_id(cookies)
 
 classes_list = classes(id_list[0], cookies)
-print(classes_list.json())
+imprimir_detalhes_disciplinas(classes_list)
